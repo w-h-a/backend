@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func ParseRecord(s []FieldSchema, res Resource) (Record, error) {
+func ToRecord(s []FieldSchema, res Resource) (Record, error) {
 	rec := Record{}
 
 	for _, fs := range s {
