@@ -1,6 +1,7 @@
 package unit
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -8,6 +9,11 @@ import (
 )
 
 func TestParseNumberField(t *testing.T) {
+	if len(os.Getenv("INTEGRATION")) > 0 {
+		t.Log("SKIPPING UNIT TEST")
+		return
+	}
+
 	tests := []struct {
 		name  string
 		fs    v1alpha1.FieldSchema
@@ -73,6 +79,11 @@ func TestParseNumberField(t *testing.T) {
 }
 
 func TestParseTextField(t *testing.T) {
+	if len(os.Getenv("INTEGRATION")) > 0 {
+		t.Log("SKIPPING UNIT TEST")
+		return
+	}
+
 	tests := []struct {
 		name  string
 		fs    v1alpha1.FieldSchema
@@ -124,6 +135,11 @@ func TestParseTextField(t *testing.T) {
 }
 
 func TestParseListField(t *testing.T) {
+	if len(os.Getenv("INTEGRATION")) > 0 {
+		t.Log("SKIPPING UNIT TEST")
+		return
+	}
+
 	tests := []struct {
 		name  string
 		fs    v1alpha1.FieldSchema
@@ -174,7 +190,12 @@ func TestParseListField(t *testing.T) {
 	}
 }
 
-func TestParseRecord(t *testing.T) {
+func TestToRecord(t *testing.T) {
+	if len(os.Getenv("INTEGRATION")) > 0 {
+		t.Log("SKIPPING UNIT TEST")
+		return
+	}
+
 	testSchema := []v1alpha1.FieldSchema{
 		{Field: "_id", Type: "text", Regex: "^[A-Za-z0-9]+$"},
 		{Field: "_v", Type: "number", Min: 1},
@@ -264,7 +285,7 @@ func TestParseRecord(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			rec, err := v1alpha1.ParseRecord(testSchema, test.resource)
+			rec, err := v1alpha1.ToRecord(testSchema, test.resource)
 			if test.err {
 				require.Error(t, err)
 			} else {
@@ -276,7 +297,12 @@ func TestParseRecord(t *testing.T) {
 	}
 }
 
-func TestSerializeResource(t *testing.T) {
+func TestToResource(t *testing.T) {
+	if len(os.Getenv("INTEGRATION")) > 0 {
+		t.Log("SKIPPING UNIT TEST")
+		return
+	}
+
 	testSchema := []v1alpha1.FieldSchema{
 		{Field: "_id", Type: "text", Regex: "^[A-Za-z0-9]+$"},
 		{Field: "_v", Type: "number", Min: 1},
@@ -331,7 +357,7 @@ func TestSerializeResource(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := v1alpha1.SerializeResource(testSchema, test.record)
+			res, err := v1alpha1.ToResource(testSchema, test.record)
 			if test.err {
 				require.Error(t, err)
 			} else {
@@ -343,14 +369,19 @@ func TestSerializeResource(t *testing.T) {
 	}
 }
 
-func TestEmptyEdgeCase(t *testing.T) {
+func TestEdgeCase(t *testing.T) {
+	if len(os.Getenv("INTEGRATION")) > 0 {
+		t.Log("SKIPPING UNIT TEST")
+		return
+	}
+
 	schema := []v1alpha1.FieldSchema{}
 
-	rec, err := v1alpha1.ParseRecord(schema, v1alpha1.Resource{})
+	rec, err := v1alpha1.ToRecord(schema, v1alpha1.Resource{})
 	require.NoError(t, err)
 	require.True(t, len(rec) == 0)
 
-	res, err := v1alpha1.SerializeResource(schema, rec)
+	res, err := v1alpha1.ToResource(schema, rec)
 	require.NoError(t, err)
 	require.True(t, len(res) == 0)
 }

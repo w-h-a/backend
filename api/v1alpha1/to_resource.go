@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-func SerializeResource(s []FieldSchema, rec Record) (Resource, error) {
+func ToResource(s []FieldSchema, rec Record) (Resource, error) {
 	res := Resource{}
 
 	for i, fs := range s {

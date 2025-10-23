@@ -24,3 +24,6 @@ jobs:
 
       - name: Run Unit Tests
         run: go clean -testcache && go test -v ./... 
+
+      - name: Run Integration Tests
+        run: go clean -testcache && INTEGRATION=1 go test -v ./...
