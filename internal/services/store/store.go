@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/w-h-a/backend/api/v1alpha1"
 	"github.com/w-h-a/backend/internal/clients/reader"
@@ -14,11 +16,105 @@ type Store struct {
 	rws     map[string]readwriter.ReadWriter
 }
 
-func (s *Store) Start(stop chan struct{}) {
+func (s *Store) Start(stop chan struct{}) error {
 	// TODO
+
+	<-stop
+
+	for _, rw := range s.rws {
+		if err := rw.Close(context.Background()); err != nil {
+			// log error
+		}
+	}
+
+	return nil
+}
+
+func (s *Store) Authenticate(ctx context.Context, username string, password string) (v1alpha1.Resource, error) {
+	return s.authenticate(ctx, username, password)
+}
+
+func (s *Store) authenticate(ctx context.Context, username string, password string) (v1alpha1.Resource, error) {
+	rs, err := s.list(ctx, "_users", "")
+	if err != nil {
+		return nil, errors.New("unautheticated")
+	}
+
+	// TODO: don't do this loop
+	for _, u := range rs {
+		if u["_id"] == username {
+			salt, ok := u["salt"].(string)
+			if !ok {
+				return nil, fmt.Errorf("user %q has invalid salt data", username)
+			}
+			expectedPassword, ok := u["password"].(string)
+			if !ok {
+				return nil, fmt.Errorf("user %q has invalid password data", username)
+			}
+			if expectedPassword == HashPassword(password, salt) {
+				return u, nil
+			}
+		}
+	}
+
+	return nil, errors.New("unauthenticated")
+}
+
+func (s *Store) Authorize(ctx context.Context, resource string, id string, action string, username string, password string) error {
+	rs, err := s.list(ctx, "_permissions", "")
+	if err != nil {
+		return fmt.Errorf("permissions error: %w", err)
+	}
+
+	var u v1alpha1.Resource
+
+	for _, p := range rs {
+		if p["resource"] != resource || (p["action"] != "*" && p["action"] != action) {
+			continue // find what we're looking for
+		}
+
+		if p["field"] == "" && p["role"] == "" {
+			return nil // public
+		}
+
+		if u == nil {
+			u, err = s.authenticate(ctx, username, password)
+			if err != nil {
+				return err
+			}
+		}
+
+		if role, roleOK := p["role"].(string); roleOK {
+			if roles, rolesOK := u["roles"].([]string); rolesOK {
+				if role == "*" || slices.Contains(roles, role) {
+					return nil // rbac
+				}
+			}
+		}
+
+		if len(id) > 0 {
+			res, err := s.readOne(ctx, resource, id)
+			if err != nil {
+				return err
+			}
+			if field, ok := p["field"].(string); ok {
+				if user, ok := res[field]; ok && user == username {
+					return nil // user name matches requested resource field
+				} else if users, ok := res[field].([]string); ok && slices.Contains(users, username) {
+					return nil // user name is in the requested resource field
+				}
+			}
+		}
+	}
+
+	return errors.New("unauthorized")
 }
 
 func (s *Store) ReadOne(ctx context.Context, resource string, id string) (v1alpha1.Resource, error) {
+	return s.readOne(ctx, resource, id)
+}
+
+func (s *Store) readOne(ctx context.Context, resource string, id string) (v1alpha1.Resource, error) {
 	schemas, ok := s.schemas[resource]
 	if !ok {
 		return nil, fmt.Errorf("no schema found for resource %s", resource)
@@ -38,6 +134,10 @@ func (s *Store) ReadOne(ctx context.Context, resource string, id string) (v1alph
 }
 
 func (s *Store) List(ctx context.Context, resource string, sortBy string) ([]v1alpha1.Resource, error) {
+	return s.list(ctx, resource, sortBy)
+}
+
+func (s *Store) list(ctx context.Context, resource string, sortBy string) ([]v1alpha1.Resource, error) {
 	schemas, ok := s.schemas[resource]
 	if !ok {
 		return nil, fmt.Errorf("no schema found for resource %s", resource)
@@ -106,12 +206,7 @@ func (s *Store) Update(ctx context.Context, resource string, updatedRes v1alpha1
 		return fmt.Errorf("'_id' field is missing or not a string in update payload")
 	}
 
-	oldRec, err := rw.ReadOne(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	oldRes, err := v1alpha1.ToResource(schemas, oldRec)
+	oldRes, err := s.readOne(ctx, resource, id)
 	if err != nil {
 		return err
 	}

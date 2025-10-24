@@ -16,6 +16,164 @@ import (
 	"github.com/w-h-a/backend/internal/services/store"
 )
 
+func TestStoreAuthorizationWithCSVRW(t *testing.T) {
+	if len(os.Getenv("INTEGRATION")) == 0 {
+		t.Log("SKIPPING INTEGRATION TEST")
+		return
+	}
+
+	tests := []struct {
+		name     string
+		resource string
+		id       string
+		action   string
+		username string
+		password string
+		err      bool
+	}{
+		{
+			name:     "Public read access",
+			resource: "books",
+			action:   "read",
+			username: "",
+			password: "",
+			err:      false,
+		},
+		{
+			name:     "Create with editor role",
+			resource: "books",
+			action:   "create",
+			username: "alice",
+			password: "alicepass",
+			err:      false,
+		},
+		{
+			name:     "Update own post via owner field",
+			resource: "books",
+			id:       "book123",
+			action:   "update",
+			username: "bob",
+			password: "bobpass",
+			err:      false,
+		},
+		{
+			name:     "Admin delete access",
+			resource: "books",
+			action:   "delete",
+			username: "admin",
+			password: "admin123",
+			err:      false,
+		},
+		{
+			name:     "Delete without admin role",
+			resource: "books",
+			action:   "delete",
+			username: "alice",
+			password: "alicepass",
+			err:      true,
+		},
+		{
+			name:     "Full access via coowner list",
+			resource: "books",
+			action:   "update",
+			id:       "book123",
+			username: "alice",
+			password: "alicepass",
+			err:      false,
+		},
+		{
+			name:     "Invalid creds",
+			resource: "books",
+			action:   "create",
+			username: "alice",
+			password: "wrongpass",
+			err:      true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			schemas := map[string][]v1alpha1.FieldSchema{}
+			resourceData := map[string][]struct {
+				FieldSchema v1alpha1.FieldSchema
+				Index       int
+			}{}
+
+			dir := testData(t, "../testdata/authz")
+
+			schemaRW := csv.NewReadWriter(
+				readwriter.WithLocation(dir + "/_schemas.csv"),
+			)
+
+			recs, err := schemaRW.List(context.Background())
+			require.NoError(t, err)
+
+			for _, rec := range recs {
+				require.Equal(t, 8, len(rec))
+
+				schema := v1alpha1.FieldSchema{
+					Resource: rec[2],
+					Field:    rec[3],
+					Type:     rec[4],
+					Regex:    rec[7],
+				}
+
+				schema.Min, _ = strconv.ParseFloat(rec[5], 64)
+				schema.Max, _ = strconv.ParseFloat(rec[6], 64)
+
+				schemas[schema.Resource] = append(schemas[schema.Resource], schema)
+
+				index := len(resourceData[schema.Resource])
+
+				resourceData[schema.Resource] = append(resourceData[schema.Resource], struct {
+					FieldSchema v1alpha1.FieldSchema
+					Index       int
+				}{
+					FieldSchema: schema,
+					Index:       index,
+				})
+			}
+
+			rws := map[string]readwriter.ReadWriter{}
+
+			for name, dataList := range resourceData {
+				schema := map[string]struct {
+					Index int
+					Type  string
+				}{}
+
+				for _, data := range dataList {
+					schema[data.FieldSchema.Field] = struct {
+						Index int
+						Type  string
+					}{
+						Index: data.Index,
+						Type:  data.FieldSchema.Type,
+					}
+				}
+
+				if _, ok := rws[name]; !ok {
+					rw := csv.NewReadWriter(
+						readwriter.WithLocation(dir+"/"+name+".csv"),
+						readwriter.WithSchema(schema),
+					)
+					rws[name] = rw
+				}
+			}
+
+			s := store.New(schemas, rws)
+
+			err = s.Authorize(context.Background(), test.resource, test.id, test.action, test.username, test.password)
+
+			if test.err {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestStoreCRUDWithCSVRW(t *testing.T) {
 	if len(os.Getenv("INTEGRATION")) == 0 {
 		t.Log("SKIPPING INTEGRATION TEST")
