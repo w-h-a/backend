@@ -1,6 +1,10 @@
 package store
 
-import "crypto/rand"
+import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base32"
+)
 
 const (
 	charset  = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
@@ -17,5 +21,10 @@ var (
 			bs[i] = charset[int(bs[i])%len(charset)]
 		}
 		return string(bs)
+	}
+
+	HashPassword = func(password string, salt string) string {
+		sum := sha256.Sum256([]byte(salt + password))
+		return base32.StdEncoding.EncodeToString(sum[:])
 	}
 )
