@@ -190,6 +190,120 @@ func TestParseListField(t *testing.T) {
 	}
 }
 
+func TestParseResource(t *testing.T) {
+	if len(os.Getenv("INTEGRATION")) > 0 {
+		t.Log("SKIPPING UNIT TEST")
+		return
+	}
+
+	testSchema := []v1alpha1.FieldSchema{
+		{Field: "_id", Type: "text", Regex: "^[A-Za-z0-9]+$"},
+		{Field: "_v", Type: "number", Min: 1},
+		{Field: "name", Type: "text", Regex: "^[A-Z][a-z]*$"},
+		{Field: "age", Type: "number", Min: 0, Max: 150},
+		{Field: "tags", Type: "list"},
+	}
+
+	tests := []struct {
+		name     string
+		resource v1alpha1.Resource
+		expected v1alpha1.Resource
+		err      bool
+	}{
+		{
+			name: "complete resource",
+			resource: v1alpha1.Resource{
+				"_id":  "test007",
+				"_v":   1.0,
+				"name": "John",
+				"age":  30.0,
+				"tags": []string{"admin", "user"},
+			},
+			expected: v1alpha1.Resource{
+				"name": "John",
+				"age":  30.0,
+				"tags": []string{"admin", "user"},
+			},
+			err: false,
+		},
+		{
+			name: "missing optional fields",
+			resource: v1alpha1.Resource{
+				"_id":  "test007",
+				"_v":   1.0,
+				"name": "John",
+			},
+			expected: v1alpha1.Resource{
+				"name": "John",
+				"age":  0.0,
+				"tags": []string{},
+			},
+			err: false,
+		},
+		{
+			name: "invalid id",
+			resource: v1alpha1.Resource{
+				"_id":  "?",
+				"_v":   1.0,
+				"name": "John",
+			},
+			expected: v1alpha1.Resource{
+				"name": "John",
+				"age":  0.0,
+				"tags": []string{},
+			},
+			err: false,
+		},
+		{
+			name: "invalid version",
+			resource: v1alpha1.Resource{
+				"_id":  "test007",
+				"_v":   0.0,
+				"name": "John",
+			},
+			expected: v1alpha1.Resource{
+				"name": "John",
+				"age":  0.0,
+				"tags": []string{},
+			},
+			err: false,
+		},
+		{
+			name: "invalid name",
+			resource: v1alpha1.Resource{
+				"_id":  "test007",
+				"_v":   1.0,
+				"name": "john",
+				"age":  30.0,
+			},
+			err: true,
+		},
+		{
+			name: "invalid age",
+			resource: v1alpha1.Resource{
+				"_id":  "test007",
+				"_v":   1.0,
+				"name": "John",
+				"age":  200.0,
+			},
+			err: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			parsed, err := v1alpha1.ParseResource(testSchema, test.resource)
+			if test.err {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, len(test.expected), len(parsed))
+				require.Equal(t, test.expected, parsed)
+			}
+		})
+	}
+}
+
 func TestToRecord(t *testing.T) {
 	if len(os.Getenv("INTEGRATION")) > 0 {
 		t.Log("SKIPPING UNIT TEST")
@@ -250,7 +364,14 @@ func TestToRecord(t *testing.T) {
 				"_id": "?",
 				"_v":  1.0,
 			},
-			err: true,
+			expected: v1alpha1.Record{
+				"?",
+				"1",
+				"",
+				"0",
+				"",
+			},
+			err: false,
 		},
 		{
 			name: "invalid version",
@@ -259,7 +380,14 @@ func TestToRecord(t *testing.T) {
 				"_v":   0.0,
 				"name": "John",
 			},
-			err: true,
+			expected: v1alpha1.Record{
+				"test007",
+				"0",
+				"John",
+				"0",
+				"",
+			},
+			err: false,
 		},
 		{
 			name: "invalid name",
@@ -269,7 +397,14 @@ func TestToRecord(t *testing.T) {
 				"name": "john",
 				"age":  30.0,
 			},
-			err: true,
+			expected: v1alpha1.Record{
+				"test007",
+				"1",
+				"john",
+				"30",
+				"",
+			},
+			err: false,
 		},
 		{
 			name: "invalid age",
@@ -279,7 +414,14 @@ func TestToRecord(t *testing.T) {
 				"name": "John",
 				"age":  200.0,
 			},
-			err: true,
+			expected: v1alpha1.Record{
+				"test007",
+				"1",
+				"John",
+				"200",
+				"",
+			},
+			err: false,
 		},
 	}
 

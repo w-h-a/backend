@@ -27,38 +27,6 @@ type csvReadWriter struct {
 	mtx     sync.RWMutex
 }
 
-func (rw *csvReadWriter) ReadOne(ctx context.Context, id string, opts ...reader.ReadOneOption) (v1alpha1.Record, error) {
-	rw.mtx.RLock()
-	defer rw.mtx.RUnlock()
-
-	if rw.version[id] < 1 {
-		return nil, errors.New("record not found")
-	}
-
-	offset, ok := rw.index[id]
-	if !ok {
-		return nil, nil
-	}
-
-	if _, err := rw.f.Seek(offset, io.SeekStart); err != nil {
-		return nil, err
-	}
-
-	r := csv.NewReader(rw.f)
-
-	rec, err := r.Read()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(rec) > 0 && rec[0] != id {
-		slog.ErrorContext(ctx, "corrupted index", "record", rec)
-		return nil, errors.New("corrupted index")
-	}
-
-	return rec, nil
-}
-
 func (rw *csvReadWriter) List(ctx context.Context, opts ...reader.ListOption) ([]v1alpha1.Record, error) {
 	options := reader.NewListOptions(opts...)
 
@@ -125,11 +93,43 @@ func (rw *csvReadWriter) List(ctx context.Context, opts ...reader.ListOption) ([
 	return rs, nil
 }
 
+func (rw *csvReadWriter) ReadOne(ctx context.Context, id string, opts ...reader.ReadOneOption) (v1alpha1.Record, error) {
+	rw.mtx.RLock()
+	defer rw.mtx.RUnlock()
+
+	if rw.version[id] < 1 {
+		return nil, reader.ErrNotFound
+	}
+
+	offset, ok := rw.index[id]
+	if !ok {
+		return nil, nil
+	}
+
+	if _, err := rw.f.Seek(offset, io.SeekStart); err != nil {
+		return nil, err
+	}
+
+	r := csv.NewReader(rw.f)
+
+	rec, err := r.Read()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(rec) > 0 && rec[0] != id {
+		slog.ErrorContext(ctx, "corrupted index", "record", rec)
+		return nil, errors.New("corrupted index")
+	}
+
+	return rec, nil
+}
+
 func (rw *csvReadWriter) Create(ctx context.Context, r v1alpha1.Record, opts ...writer.WriteOption) error {
 	rw.mtx.Lock()
 	defer rw.mtx.Unlock()
 
-	if len(r) == 0 || len(r[0]) == 0 {
+	if len(r) != len(rw.options.Schema) || len(r[0]) == 0 {
 		return errors.New("invalid record")
 	}
 
@@ -142,8 +142,8 @@ func (rw *csvReadWriter) Update(ctx context.Context, r v1alpha1.Record, opts ...
 	rw.mtx.Lock()
 	defer rw.mtx.Unlock()
 
-	if len(r) == 0 {
-		return errors.New("empty record")
+	if len(r) != len(rw.options.Schema) {
+		return errors.New("invalid record")
 	}
 
 	r[1] = strconv.FormatInt(rw.version[r[0]]+1, 10)
@@ -156,10 +156,16 @@ func (rw *csvReadWriter) Delete(ctx context.Context, id string, opts ...writer.D
 	defer rw.mtx.Unlock()
 
 	if rw.version[id] < 1 {
-		return errors.New("record not found")
+		return writer.ErrNotFound
 	}
 
-	return rw.append(ctx, v1alpha1.Record{id, "0"})
+	numCols := len(rw.options.Schema)
+
+	tombstone := make(v1alpha1.Record, numCols)
+	tombstone[0] = id
+	tombstone[1] = "0"
+
+	return rw.append(ctx, tombstone)
 }
 
 func (rw *csvReadWriter) Close(ctx context.Context) error {
@@ -255,7 +261,7 @@ func NewReadWriter(opts ...readwriter.Option) readwriter.ReadWriter {
 			break
 		}
 		if err != nil {
-			panic(err)
+			panic(fmt.Sprintf("failed to read at location %s: %v", rw.options.Location, err))
 		}
 		if len(rec) > 1 {
 			rw.index[rec[0]] = pos
