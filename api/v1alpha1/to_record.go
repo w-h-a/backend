@@ -12,7 +12,7 @@ func ToRecord(s []FieldSchema, res Resource) (Record, error) {
 	for i, fs := range s {
 		v := res[fs.Field]
 
-		formattedValue, err := FormatField(fs, v)
+		formattedValue, err := FormatRecordField(fs, v)
 		if err != nil {
 			return nil, err
 		}
@@ -23,7 +23,7 @@ func ToRecord(s []FieldSchema, res Resource) (Record, error) {
 	return rec, nil
 }
 
-func FormatField(fs FieldSchema, v any) (string, error) {
+func FormatRecordField(fs FieldSchema, v any) (string, error) {
 	switch fs.Type {
 	case "number":
 		if v == nil {
@@ -50,6 +50,6 @@ func FormatField(fs FieldSchema, v any) (string, error) {
 		}
 		return "", fmt.Errorf("internal error: expected []string for field '%s', got %T", fs.Field, v)
 	default:
-		return "", fmt.Errorf("unknown schema type '%s' during formatting", fs.Type)
+		return "", fmt.Errorf("unknown schema type '%s' during record formatting", fs.Type)
 	}
 }

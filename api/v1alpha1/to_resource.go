@@ -16,22 +16,31 @@ func ToResource(s []FieldSchema, rec Record) (Resource, error) {
 
 		strValue := rec[i]
 
-		switch fs.Type {
-		case "number":
-			n, _ := strconv.ParseFloat(strValue, 64)
-			res[fs.Field] = n
-		case "text":
-			res[fs.Field] = strValue
-		case "list":
-			if len(strValue) > 0 {
-				res[fs.Field] = strings.Split(strValue, ",")
-			} else {
-				res[fs.Field] = []string{}
-			}
-		default:
-			return nil, fmt.Errorf("unknown field type %s during resource serialization", fs.Type)
+		v, err := FormatResourceField(fs, strValue)
+		if err != nil {
+			return nil, err
 		}
+
+		res[fs.Field] = v
 	}
 
 	return res, nil
+}
+
+func FormatResourceField(fs FieldSchema, strValue string) (any, error) {
+	switch fs.Type {
+	case "number":
+		n, _ := strconv.ParseFloat(strValue, 64)
+		return n, nil
+	case "text":
+		return strValue, nil
+	case "list":
+		if len(strValue) > 0 {
+			return strings.Split(strValue, ","), nil
+		} else {
+			return []string{}, nil
+		}
+	default:
+		return nil, fmt.Errorf("unknown schema type %s during resource formatting", fs.Type)
+	}
 }
