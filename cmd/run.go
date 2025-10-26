@@ -2,14 +2,13 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
-	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/urfave/cli/v2"
@@ -31,7 +30,8 @@ func Run(ctx *cli.Context) error {
 
 	// traces
 
-	// stop channels
+	// wait group & stop channels
+	var wg sync.WaitGroup
 	stopChannels := map[string]chan struct{}{}
 
 	// setup
@@ -50,17 +50,21 @@ func Run(ctx *cli.Context) error {
 	stopChannels["httpserver"] = make(chan struct{})
 
 	// error and sig chans
-	errCh := make(chan error, 1)
+	errCh := make(chan error, len(stopChannels))
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// start
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		// log
 		errCh <- s.Run(stopChannels["store"])
 	}()
 
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		// log
 		errCh <- httpSrv.Run(stopChannels["httpserver"])
 	}()
@@ -76,18 +80,15 @@ func Run(ctx *cli.Context) error {
 		for _, stop := range stopChannels {
 			close(stop)
 		}
+	}
 
-		select {
-		case err := <-errCh:
-			if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-				// log that we shutdown with error
-			} else if errors.Is(err, context.DeadlineExceeded) {
-				// log that shutdown timed out
-			} else {
-				// log that shutdown was graceful
-			}
-		case <-time.After(12 * time.Second):
-			// log that we timed out
+	wg.Wait()
+
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			// log
 		}
 	}
 
