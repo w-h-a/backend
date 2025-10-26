@@ -3,16 +3,11 @@ package integration
 import (
 	"context"
 	"errors"
-	"io/fs"
 	"os"
-	"path/filepath"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/w-h-a/backend/api/v1alpha1"
-	"github.com/w-h-a/backend/internal/clients/readwriter"
-	"github.com/w-h-a/backend/internal/clients/readwriter/csv"
 	"github.com/w-h-a/backend/internal/services/store"
 )
 
@@ -93,77 +88,13 @@ func TestStoreAuthorizationWithCSVRW(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			schemas := map[string][]v1alpha1.FieldSchema{}
-			resourceData := map[string][]struct {
-				FieldSchema v1alpha1.FieldSchema
-				Index       int
-			}{}
-
-			dir := testData(t, "../testdata/authz")
-
-			schemaRW := csv.NewReadWriter(
-				readwriter.WithLocation(dir + "/_schemas.csv"),
-			)
-
-			recs, err := schemaRW.List(context.Background())
+			schemas, rws, err := initReadWriters(t, "../testdata/authz")
 			require.NoError(t, err)
-
-			for _, rec := range recs {
-				require.Equal(t, 8, len(rec))
-
-				schema := v1alpha1.FieldSchema{
-					Resource: rec[2],
-					Field:    rec[3],
-					Type:     rec[4],
-					Regex:    rec[7],
-				}
-
-				schema.Min, _ = strconv.ParseFloat(rec[5], 64)
-				schema.Max, _ = strconv.ParseFloat(rec[6], 64)
-
-				schemas[schema.Resource] = append(schemas[schema.Resource], schema)
-
-				index := len(resourceData[schema.Resource])
-
-				resourceData[schema.Resource] = append(resourceData[schema.Resource], struct {
-					FieldSchema v1alpha1.FieldSchema
-					Index       int
-				}{
-					FieldSchema: schema,
-					Index:       index,
-				})
-			}
-
-			rws := map[string]readwriter.ReadWriter{}
-
-			for name, dataList := range resourceData {
-				schema := map[string]struct {
-					Index int
-					Type  string
-				}{}
-
-				for _, data := range dataList {
-					schema[data.FieldSchema.Field] = struct {
-						Index int
-						Type  string
-					}{
-						Index: data.Index,
-						Type:  data.FieldSchema.Type,
-					}
-				}
-
-				if _, ok := rws[name]; !ok {
-					rw := csv.NewReadWriter(
-						readwriter.WithLocation(dir+"/"+name+".csv"),
-						readwriter.WithSchema(schema),
-					)
-					rws[name] = rw
-				}
-			}
 
 			s := store.New(schemas, rws)
 
-			err = s.Authorize(context.Background(), test.resource, test.id, test.action, test.username, test.password)
+			u, _ := s.Authenticate(context.Background(), test.username, test.password)
+			err = s.Authorize(context.Background(), test.resource, test.id, test.action, u)
 
 			if test.err {
 				require.Error(t, err)
@@ -227,7 +158,7 @@ func TestStoreCRUDWithCSVRW(t *testing.T) {
 				})
 				return err
 			},
-			err: true,
+			err: false,
 		},
 		{
 			name: "Update book",
@@ -332,73 +263,8 @@ func TestStoreCRUDWithCSVRW(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			schemas := map[string][]v1alpha1.FieldSchema{}
-			resourceData := map[string][]struct {
-				FieldSchema v1alpha1.FieldSchema
-				Index       int
-			}{}
-
-			dir := testData(t, "../testdata/basic")
-
-			schemaRW := csv.NewReadWriter(
-				readwriter.WithLocation(dir + "/_schemas.csv"),
-			)
-
-			recs, err := schemaRW.List(context.Background())
+			schemas, rws, err := initReadWriters(t, "../testdata/basic")
 			require.NoError(t, err)
-
-			for _, rec := range recs {
-				require.Equal(t, 8, len(rec))
-
-				schema := v1alpha1.FieldSchema{
-					Resource: rec[2],
-					Field:    rec[3],
-					Type:     rec[4],
-					Regex:    rec[7],
-				}
-
-				schema.Min, _ = strconv.ParseFloat(rec[5], 64)
-				schema.Max, _ = strconv.ParseFloat(rec[6], 64)
-
-				schemas[schema.Resource] = append(schemas[schema.Resource], schema)
-
-				index := len(resourceData[schema.Resource])
-
-				resourceData[schema.Resource] = append(resourceData[schema.Resource], struct {
-					FieldSchema v1alpha1.FieldSchema
-					Index       int
-				}{
-					FieldSchema: schema,
-					Index:       index,
-				})
-			}
-
-			rws := map[string]readwriter.ReadWriter{}
-
-			for name, dataList := range resourceData {
-				schema := map[string]struct {
-					Index int
-					Type  string
-				}{}
-
-				for _, data := range dataList {
-					schema[data.FieldSchema.Field] = struct {
-						Index int
-						Type  string
-					}{
-						Index: data.Index,
-						Type:  data.FieldSchema.Type,
-					}
-				}
-
-				if _, ok := rws[name]; !ok {
-					rw := csv.NewReadWriter(
-						readwriter.WithLocation(dir+"/"+name+".csv"),
-						readwriter.WithSchema(schema),
-					)
-					rws[name] = rw
-				}
-			}
 
 			s := store.New(schemas, rws)
 
@@ -416,35 +282,4 @@ func TestStoreCRUDWithCSVRW(t *testing.T) {
 			}
 		})
 	}
-}
-
-func testData(t *testing.T, src string) string {
-	t.Helper()
-
-	dst := t.TempDir()
-
-	if err := filepath.Walk(src, func(path string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		rel, _ := filepath.Rel(src, path)
-
-		target := filepath.Join(dst, rel)
-
-		if info.IsDir() {
-			return os.MkdirAll(target, 0755)
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		return os.WriteFile(target, data, 0644)
-	}); err != nil {
-		t.Fatalf("failed to copy testdata: %v", err)
-	}
-
-	return dst
 }

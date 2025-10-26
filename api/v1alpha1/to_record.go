@@ -2,92 +2,54 @@ package v1alpha1
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 )
 
 func ToRecord(s []FieldSchema, res Resource) (Record, error) {
-	rec := Record{}
+	recordLen := len(s)
+	rec := make(Record, recordLen)
 
-	for _, fs := range s {
+	for i, fs := range s {
 		v := res[fs.Field]
-		switch fs.Type {
-		case "number":
-			if v == nil {
-				v = 0.0
-			}
-			n, err := ParseField[float64](fs, v)
-			if err != nil {
-				return nil, err
-			}
-			rec = append(rec, fmt.Sprintf("%g", n))
-		case "text":
-			if v == nil {
-				v = ""
-			}
-			t, err := ParseField[string](fs, v)
-			if err != nil {
-				return nil, err
-			}
-			rec = append(rec, t)
-		case "list":
-			if v == nil {
-				v = []string{}
-			}
-			l, err := ParseField[[]string](fs, v)
-			if err != nil {
-				return nil, err
-			}
-			rec = append(rec, strings.Join(l, ","))
-		default:
-			return nil, fmt.Errorf("unknown field type %s during record parsing", fs.Type)
+
+		formattedValue, err := FormatField(fs, v)
+		if err != nil {
+			return nil, err
 		}
+
+		rec[i] = formattedValue
 	}
 
 	return rec, nil
 }
 
-type FieldType interface {
-	float64 | string | []string
-}
-
-func ParseField[T FieldType](fs FieldSchema, v any) (T, error) {
-	var result T
-
-	switch any(result).(type) {
-	case float64:
-		n, ok := v.(float64)
-		if !ok {
-			return result, fmt.Errorf("failed to parse field \"%s\" as a number", fs.Field)
+func FormatField(fs FieldSchema, v any) (string, error) {
+	switch fs.Type {
+	case "number":
+		if v == nil {
+			v = 0.0
 		}
-		ok = (fs.Min == 0 && fs.Max == 0) ||
-			(n >= fs.Min && (fs.Max < fs.Min || n <= fs.Max))
-		if !ok {
-			return result, fmt.Errorf("failed to parse field \"%s\" as a valid number", fs.Field)
+		if n, ok := v.(float64); ok {
+			return fmt.Sprintf("%g", n), nil
 		}
-		return any(n).(T), nil
-	case string:
-		t, ok := v.(string)
-		if !ok {
-			return result, fmt.Errorf("failed to parse field \"%s\" as a string", fs.Field)
+		return "", fmt.Errorf("internal error: expected float64 for field '%s', got %T", fs.Field, v)
+	case "text":
+		if v == nil {
+			v = ""
 		}
-		if len(fs.Regex) > 0 {
-			matched, err := regexp.MatchString(fs.Regex, t)
-			if err != nil {
-				return result, fmt.Errorf("invalid regex for field \"%s\": %w", fs.Field, err)
-			}
-			if !matched {
-				return result, fmt.Errorf("failed to parse field \"%s\" as a valid string", fs.Field)
-			}
+		if t, ok := v.(string); ok {
+			return t, nil
 		}
-		return any(t).(T), nil
-	case []string:
-		l, ok := v.([]string)
-		if !ok {
-			return result, fmt.Errorf("failed to parse field \"%s\" as a list", fs.Field)
+		return "", fmt.Errorf("internal error: expected string for field '%s', got %T", fs.Field, v)
+	case "list":
+		if v == nil {
+			v = []string{}
 		}
-		return any(l).(T), nil
+		if l, ok := v.([]string); ok {
+			return strings.Join(l, ","), nil
+		}
+		return "", fmt.Errorf("internal error: expected []string for field '%s', got %T", fs.Field, v)
 	default:
-		return result, fmt.Errorf("unsupported generic type %T", result)
+		return "", fmt.Errorf("unknown schema type '%s' during formatting", fs.Type)
 	}
 }
