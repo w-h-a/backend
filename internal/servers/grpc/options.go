@@ -29,6 +29,6 @@ func WithStreamInterceptors(streamies ...grpc.StreamServerInterceptor) servers.O
 }
 
 func getStreamInterceptorsFromCtx(ctx context.Context) ([]grpc.StreamServerInterceptor, bool) {
-	streamies, ok := ctx.Value(unaryInterceptorKey{}).([]grpc.StreamServerInterceptor)
+	streamies, ok := ctx.Value(streamInterceptorKey{}).([]grpc.StreamServerInterceptor)
 	return streamies, ok
 }

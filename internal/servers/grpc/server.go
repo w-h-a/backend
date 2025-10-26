@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"sync"
 	"time"
 
@@ -88,8 +87,8 @@ func (s *grpcServer) Start() error {
 	s.errCh = make(chan error, 1)
 
 	go func() {
-		if err := s.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			s.errCh <- fmt.Errorf("http server ListenAndServe error: %w", err)
+		if err := s.server.Serve(listener); err != nil {
+			s.errCh <- fmt.Errorf("grpc server Serve error: %w", err)
 		}
 		close(s.exit)
 	}()
